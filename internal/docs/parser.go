@@ -31,14 +31,11 @@ func ParseFile(docsPath string, doc DocFile) (*ParsedDoc, error) {
 		title = filepath.Base(doc.Path)
 	}
 
-	// Strip RST directives and markup for plain text content.
-	plain := stripRST(content)
-
 	return &ParsedDoc{
 		Title:   title,
 		Path:    doc.Path,
 		Section: doc.Section,
-		Content: plain,
+		Content: content,
 	}, nil
 }
 
@@ -311,8 +308,9 @@ func ParseClassDoc(docsPath string, doc DocFile) (*ParsedDoc, []Symbol, error) {
 		Path:      doc.Path,
 	})
 
-	// Parse members from the original content.
-	symbols = append(symbols, parseMembers(parsed.Content, className, doc.Path)...)
+	// Parse members from cleaned content (for structured extraction).
+	cleaned := stripRST(parsed.Content)
+	symbols = append(symbols, parseMembers(cleaned, className, doc.Path)...)
 
 	return parsed, symbols, nil
 }

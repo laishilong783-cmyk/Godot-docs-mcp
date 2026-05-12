@@ -41,3 +41,7 @@ godot-docs-mcp-*
 godot-docs-index-*
 !cmd/godot-docs-mcp/
 !cmd/godot-docs-index/
+
+check-db.go
+test-rst*.jsonl
+test-rst*.txt
