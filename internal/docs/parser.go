@@ -10,6 +10,10 @@ import (
 	"unicode"
 )
 
+// classrefMarkerRe matches exact Godot 4.4 classref RST markers.
+// e.g. ".. rst-class:: classref-method" but NOT ".. rst-class:: classref-property-setget"
+var classrefMarkerRe = regexp.MustCompile(`^\.\. rst-class:: classref-([\w-]+)$`)
+
 // ParsedDoc holds parsed document info.
 type ParsedDoc struct {
 	Title   string
@@ -346,38 +350,41 @@ func parseMembersFromRawRST(content, className, path string) []Symbol {
 		trimmed := strings.TrimSpace(line)
 
 		// Detect classref markers (Godot 4.4+ format)
-		switch {
-		case strings.Contains(trimmed, ".. rst-class:: classref-method"):
-			flushMember()
-			currentKind = KindMethod
-			continue
-		case strings.Contains(trimmed, ".. rst-class:: classref-property"):
-			flushMember()
-			currentKind = KindProperty
-			continue
-		case strings.Contains(trimmed, ".. rst-class:: classref-signal"):
-			flushMember()
-			currentKind = KindSignal
-			continue
-		case strings.Contains(trimmed, ".. rst-class:: classref-enumeration"):
-			flushMember()
-			currentKind = KindEnum
-			continue
-		case strings.Contains(trimmed, ".. rst-class:: classref-constant"):
-			flushMember()
-			currentKind = KindConstant
-			continue
-		case strings.Contains(trimmed, ".. rst-class:: classref-annotation"):
-			flushMember()
-			currentKind = KindAnnotation
-			continue
-		case strings.Contains(trimmed, ".. rst-class:: classref-operator"):
-			flushMember()
-			currentKind = KindOperator
-			continue
-		case strings.Contains(trimmed, ".. rst-class:: classref-themeitem"):
-			flushMember()
-			currentKind = KindThemeProperty
+		// Use regex to match the exact marker to avoid prefix confusion
+		// (e.g. "classref-property-setget" should NOT match "classref-property")
+		if matches := classrefMarkerRe.FindStringSubmatch(trimmed); matches != nil {
+			kind := matches[1]
+			switch kind {
+			case "method":
+				flushMember()
+				currentKind = KindMethod
+			case "property":
+				flushMember()
+				currentKind = KindProperty
+			case "signal":
+				flushMember()
+				currentKind = KindSignal
+			case "enumeration":
+				flushMember()
+				currentKind = KindEnum
+			case "constant":
+				flushMember()
+				currentKind = KindConstant
+			case "annotation":
+				flushMember()
+				currentKind = KindAnnotation
+			case "operator":
+				flushMember()
+				currentKind = KindOperator
+			case "themeitem":
+				flushMember()
+				currentKind = KindThemeProperty
+			default:
+				// Auxiliary markers like classref-property-setget or classref-item-separator:
+				// Enter description mode so subsequent lines (setter/getter/text)
+				// are collected as description rather than parsed as new signatures.
+				inDesc = true
+			}
 			continue
 		}
 
@@ -386,7 +393,8 @@ func parseMembersFromRawRST(content, className, path string) []Symbol {
 		}
 
 		// Signature line: first non-empty line after classref marker
-		if sigLine == "" && trimmed != "" {
+		// Skip list-item lines (e.g. "- |void| **set_xxx**..." from property-setget blocks)
+		if sigLine == "" && trimmed != "" && !strings.HasPrefix(trimmed, "- ") {
 			sigLine = trimmed
 			currentMember = parseClassrefSignature(sigLine, currentKind, className, path, lineNum)
 			continue
@@ -530,6 +538,11 @@ func cleanSignatureForDisplay(line string) string {
 	line = strings.ReplaceAll(line, `\.`, ".")
 	// Remove remaining backslash-space patterns (e.g. \ param_name)
 	line = strings.ReplaceAll(line, `\ `, " ")
+
+	// Clean up spaces after opening parens and before closing parens
+	// (caused by RST escape sequences like \ (  becoming "( " instead of "(")
+	line = strings.ReplaceAll(line, "( ", "(")
+	line = strings.ReplaceAll(line, " )", ")")
 
 	return strings.TrimSpace(line)
 }
