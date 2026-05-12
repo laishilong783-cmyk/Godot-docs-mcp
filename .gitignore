@@ -1,0 +1,43 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Go vendor directory
+vendor/
+
+# SQLite database files
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+
+# Temporary test files
+test-output.jsonl
+test-stderr.txt
+test-mcp-tools.go
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build artifacts (pre-built binaries - use GitHub Releases instead)
+godot-docs-mcp-*
+godot-docs-index-*
+!cmd/godot-docs-mcp/
+!cmd/godot-docs-index/
