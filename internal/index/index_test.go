@@ -107,6 +107,61 @@ func TestInsertSymbol(t *testing.T) {
 	}
 }
 
+func TestFilteredMembersAndExactMemberLookup(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	db, err := Open(dbPath)
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer db.Close()
+
+	version := "4.4"
+	symbols := []struct {
+		kind, className, memberName, signature, returnType string
+	}{
+		{"class", "CharacterBody2D", "", "", ""},
+		{"method", "CharacterBody2D", "move_and_slide", "bool move_and_slide()", "bool"},
+		{"method", "CharacterBody2D", "get_slide_collision", "KinematicCollision2D get_slide_collision(int slide_idx)", "KinematicCollision2D"},
+		{"property", "CharacterBody2D", "velocity", "Vector2 velocity", "Vector2"},
+		{"signal", "Area2D", "body_entered", "body_entered(Node2D body)", ""},
+	}
+	for _, s := range symbols {
+		if err := db.InsertSymbol(version, s.kind, s.className, s.memberName, s.signature, s.returnType, "", "classes/test.rst", 0, 0); err != nil {
+			t.Fatalf("InsertSymbol %s.%s failed: %v", s.className, s.memberName, err)
+		}
+	}
+
+	members, err := db.GetClassMembers(version, "CharacterBody2D", MemberFilter{
+		Kinds: []string{"method"},
+		Query: "slide",
+		Limit: 1,
+	})
+	if err != nil {
+		t.Fatalf("GetClassMembers failed: %v", err)
+	}
+	if len(members) != 1 || members[0]["kind"] != "method" {
+		t.Fatalf("members = %+v, want one method", members)
+	}
+
+	property, err := db.GetMember(version, "CharacterBody2D", "property", "velocity")
+	if err != nil {
+		t.Fatalf("GetMember property failed: %v", err)
+	}
+	if property["return_type"] != "Vector2" {
+		t.Fatalf("property return_type = %v, want Vector2", property["return_type"])
+	}
+
+	found, err := db.SearchSymbols(version, "slide", []string{"method"}, 5)
+	if err != nil {
+		t.Fatalf("SearchSymbols failed: %v", err)
+	}
+	if len(found) == 0 {
+		t.Fatal("Expected SearchSymbols results for slide")
+	}
+}
+
 func TestGetPage(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")

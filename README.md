@@ -125,8 +125,11 @@ If you also use `godot-mcp-pro`, keep both servers in the config.
 |------|-------------|
 | `godot_docs_search` | Full-text search across documentation |
 | `godot_docs_get_page` | Read a document page by relative path |
-| `godot_docs_get_class` | Query class info, inheritance, methods, properties, signals |
+| `godot_docs_get_class` | Query class info and optionally filtered members |
 | `godot_docs_get_method` | Query method signature and description |
+| `godot_docs_get_property` | Query property type and description |
+| `godot_docs_get_signal` | Query signal signature and description |
+| `godot_docs_suggest_apis` | Return compact API candidates for a task before using godot-mcp-pro |
 
 ## Example Queries
 
@@ -137,12 +140,27 @@ If you also use `godot-mcp-pro`, keep both servers in the config.
 
 **Get class:**
 ```json
-{"class_name": "CharacterBody2D", "version": "4.4", "include_members": true}
+{"class_name": "CharacterBody2D", "version": "4.4"}
+```
+
+**Get filtered class members:**
+```json
+{"class_name": "CharacterBody2D", "version": "4.4", "member_kinds": ["method"], "member_query": "slide", "member_limit": 10}
 ```
 
 **Get method:**
 ```json
 {"class_name": "CharacterBody2D", "method_name": "move_and_slide", "version": "4.4"}
+```
+
+**Get property:**
+```json
+{"class_name": "CharacterBody2D", "property_name": "velocity", "version": "4.4"}
+```
+
+**Suggest APIs for a task:**
+```json
+{"task": "CharacterBody2D player movement velocity move_and_slide", "version": "4.4", "kinds": ["method", "property"], "limit": 12}
 ```
 
 ## Recommended Workflow with godot-mcp-pro

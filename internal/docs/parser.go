@@ -414,6 +414,10 @@ func parseMembersFromRawRST(content, className, path string) []Symbol {
 				currentKind = ""
 				continue
 			}
+			// Property set/get helper rows are implementation details, not user-facing descriptions.
+			if strings.HasPrefix(trimmed, "- ") {
+				continue
+			}
 			// Also stop at table row separators (properties tables)
 			if strings.HasPrefix(trimmed, "+") && strings.HasSuffix(trimmed, "+") {
 				// Table separator line - might indicate end of description

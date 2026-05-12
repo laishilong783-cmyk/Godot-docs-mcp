@@ -1,6 +1,7 @@
 package docs
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -124,6 +125,9 @@ func TestParseMembersIgnoresPropertySetgetBlocks(t *testing.T) {
 
 	if len(properties) != 1 || properties[0].MemberName != "velocity" {
 		t.Fatalf("properties = %+v, want only velocity", properties)
+	}
+	if strings.Contains(properties[0].Description, "set_velocity") || strings.Contains(properties[0].Description, "get_velocity") {
+		t.Fatalf("property description contains set/get helper rows: %q", properties[0].Description)
 	}
 	if len(methods) != 1 || methods[0].MemberName != "move_and_slide" {
 		t.Fatalf("methods = %+v, want only move_and_slide", methods)
