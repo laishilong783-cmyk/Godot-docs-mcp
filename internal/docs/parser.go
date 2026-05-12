@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"unicode"
 )
@@ -241,7 +242,6 @@ func snakeToPascal(s string) string {
 		}
 		runes := []rune(p)
 		// Capitalize first letter if it's a letter
-		// Capitalize first letter if it's a letter
 		for i := 0; i < len(runes); i++ {
 			if unicode.IsLetter(runes[i]) {
 				runes[i] = unicode.ToUpper(runes[i])
@@ -263,14 +263,14 @@ func snakeToPascal(s string) string {
 type SymbolKind string
 
 const (
-	KindClass        SymbolKind = "class"
-	KindMethod       SymbolKind = "method"
-	KindProperty     SymbolKind = "property"
-	KindSignal       SymbolKind = "signal"
-	KindEnum         SymbolKind = "enum"
-	KindConstant     SymbolKind = "constant"
-	KindAnnotation   SymbolKind = "annotation"
-	KindOperator     SymbolKind = "operator"
+	KindClass         SymbolKind = "class"
+	KindMethod        SymbolKind = "method"
+	KindProperty      SymbolKind = "property"
+	KindSignal        SymbolKind = "signal"
+	KindEnum          SymbolKind = "enum"
+	KindConstant      SymbolKind = "constant"
+	KindAnnotation    SymbolKind = "annotation"
+	KindOperator      SymbolKind = "operator"
 	KindThemeProperty SymbolKind = "theme_property"
 )
 
@@ -308,14 +308,253 @@ func ParseClassDoc(docsPath string, doc DocFile) (*ParsedDoc, []Symbol, error) {
 		Path:      doc.Path,
 	})
 
-	// Parse members from cleaned content (for structured extraction).
-	cleaned := stripRST(parsed.Content)
-	symbols = append(symbols, parseMembers(cleaned, className, doc.Path)...)
+	// Parse members from raw RST using classref markers.
+	symbols = append(symbols, parseMembersFromRawRST(parsed.Content, className, doc.Path)...)
 
 	return parsed, symbols, nil
 }
 
+// parseMembersFromRawRST parses Godot 4.4+ classref RST format.
+func parseMembersFromRawRST(content, className, path string) []Symbol {
+	var symbols []Symbol
+	scanner := bufio.NewScanner(strings.NewReader(content))
+
+	var currentKind SymbolKind
+	var currentMember Symbol
+	var descLines []string
+	var inDesc bool
+	var sigLine string
+	lineNum := 0
+
+	flushMember := func() {
+		if currentMember.MemberName != "" {
+			currentMember.Description = strings.TrimSpace(strings.Join(descLines, "\n"))
+			if len(currentMember.Description) > 2000 {
+				currentMember.Description = currentMember.Description[:2000] + "..."
+			}
+			symbols = append(symbols, currentMember)
+		}
+		currentMember = Symbol{}
+		descLines = nil
+		inDesc = false
+		sigLine = ""
+	}
+
+	for scanner.Scan() {
+		lineNum++
+		line := scanner.Text()
+		trimmed := strings.TrimSpace(line)
+
+		// Detect classref markers (Godot 4.4+ format)
+		switch {
+		case strings.Contains(trimmed, ".. rst-class:: classref-method"):
+			flushMember()
+			currentKind = KindMethod
+			continue
+		case strings.Contains(trimmed, ".. rst-class:: classref-property"):
+			flushMember()
+			currentKind = KindProperty
+			continue
+		case strings.Contains(trimmed, ".. rst-class:: classref-signal"):
+			flushMember()
+			currentKind = KindSignal
+			continue
+		case strings.Contains(trimmed, ".. rst-class:: classref-enumeration"):
+			flushMember()
+			currentKind = KindEnum
+			continue
+		case strings.Contains(trimmed, ".. rst-class:: classref-constant"):
+			flushMember()
+			currentKind = KindConstant
+			continue
+		case strings.Contains(trimmed, ".. rst-class:: classref-annotation"):
+			flushMember()
+			currentKind = KindAnnotation
+			continue
+		case strings.Contains(trimmed, ".. rst-class:: classref-operator"):
+			flushMember()
+			currentKind = KindOperator
+			continue
+		case strings.Contains(trimmed, ".. rst-class:: classref-themeitem"):
+			flushMember()
+			currentKind = KindThemeProperty
+			continue
+		}
+
+		if currentKind == "" {
+			continue
+		}
+
+		// Signature line: first non-empty line after classref marker
+		if sigLine == "" && trimmed != "" {
+			sigLine = trimmed
+			currentMember = parseClassrefSignature(sigLine, currentKind, className, path, lineNum)
+			continue
+		}
+
+		// Empty line after signature -> description starts next
+		if sigLine != "" && trimmed == "" && !inDesc {
+			inDesc = true
+			continue
+		}
+
+		// Collect description lines
+		if inDesc {
+			// Stop at next classref marker, section header, or property/signal group separator
+			if isSectionHeader(trimmed) || strings.HasPrefix(trimmed, ".. rst-class::") {
+				flushMember()
+				currentKind = ""
+				continue
+			}
+			// Also stop at table row separators (properties tables)
+			if strings.HasPrefix(trimmed, "+") && strings.HasSuffix(trimmed, "+") {
+				// Table separator line - might indicate end of description
+				if len(descLines) > 0 {
+					flushMember()
+					currentKind = ""
+					continue
+				}
+			}
+			descLines = append(descLines, line)
+		}
+	}
+	flushMember()
+
+	return symbols
+}
+
+// parseClassrefSignature parses a Godot 4.4 classref signature line.
+func parseClassrefSignature(line string, kind SymbolKind, className, path string, lineNum int) Symbol {
+	memberName := extractBoldText(line)
+	returnType := extractReturnTypeFromClassref(line, kind)
+
+	// Clean signature for display: remove link refs and escape sequences
+	cleanSig := cleanSignatureForDisplay(line)
+
+	return Symbol{
+		Kind:       kind,
+		ClassName:  className,
+		MemberName: memberName,
+		Signature:  cleanSig,
+		ReturnType: returnType,
+		Path:       path,
+		LineStart:  lineNum,
+	}
+}
+
+// extractBoldText extracts text from **bold** RST markup.
+func extractBoldText(line string) string {
+	re := regexp.MustCompile(`\*\*([^*]+)\*\*`)
+	matches := re.FindStringSubmatch(line)
+	if len(matches) > 1 {
+		name := strings.ReplaceAll(matches[1], `\`, "")
+		return strings.TrimSpace(name)
+	}
+	return ""
+}
+
+// extractReturnTypeFromClassref extracts the return type from a Godot classref signature line.
+func extractReturnTypeFromClassref(line string, kind SymbolKind) string {
+	// Signals and theme items typically have no return type.
+	if kind == KindSignal || kind == KindThemeProperty {
+		return ""
+	}
+
+	// Check for |void| marker (common for setters and some methods).
+	if strings.Contains(line, "|void|") {
+		return "void"
+	}
+
+	// For properties/methods, the type is the first :ref: before the **bold** member name.
+	boldIdx := strings.Index(line, "**")
+	if boldIdx == -1 {
+		return ""
+	}
+
+	re := regexp.MustCompile(":ref:`([^`]+)`")
+	matches := re.FindAllStringSubmatchIndex(line, -1)
+	for _, m := range matches {
+		if len(m) < 4 {
+			continue
+		}
+		// Only consider refs that appear before the bold member name.
+		if m[0] >= boldIdx {
+			continue
+		}
+		ref := line[m[2]:m[3]]
+		// Skip anchor/link emoji refs.
+		if strings.Contains(ref, "🔗") {
+			continue
+		}
+		// Extract type from "Type<class_Type>" or "Type<enum_Type>".
+		parts := strings.SplitN(ref, "<", 2)
+		if len(parts) > 0 {
+			return strings.TrimSpace(parts[0])
+		}
+	}
+
+	return ""
+}
+
+// cleanSignatureForDisplay cleans a signature line for human readability.
+func cleanSignatureForDisplay(line string) string {
+	// Remove :ref:`🔗<...>` anchor links
+	re := regexp.MustCompile("\\s*:ref:`🔗[^`]*`")
+	line = re.ReplaceAllString(line, "")
+
+	// Simplify :ref:`Type<class_Type>` to Type
+	re = regexp.MustCompile(":ref:`([^`]+)`")
+	line = re.ReplaceAllStringFunc(line, func(s string) string {
+		inner := s[6 : len(s)-1] // remove :ref:` and `
+		parts := strings.SplitN(inner, "<", 2)
+		return parts[0]
+	})
+
+	// Remove |void| wrapper
+	line = strings.ReplaceAll(line, "|void|", "void")
+
+	// Remove ** around method names
+	re = regexp.MustCompile("\\*\\*([^*]+)\\*\\*")
+	line = re.ReplaceAllStringFunc(line, func(s string) string {
+		return s[2 : len(s)-2]
+	})
+
+	// Unescape RST backslashes (Godot RST uses \ before special chars or words)
+	line = strings.ReplaceAll(line, `\ (`, "(")
+	line = strings.ReplaceAll(line, `\ )`, ")")
+	line = strings.ReplaceAll(line, `\:`, ":")
+	line = strings.ReplaceAll(line, `\,`, ",")
+	line = strings.ReplaceAll(line, `\=`, "=")
+	line = strings.ReplaceAll(line, `\[`, "[")
+	line = strings.ReplaceAll(line, `\]`, "]")
+	line = strings.ReplaceAll(line, `\.`, ".")
+	// Remove remaining backslash-space patterns (e.g. \ param_name)
+	line = strings.ReplaceAll(line, `\ `, " ")
+
+	return strings.TrimSpace(line)
+}
+
+// isSectionHeader detects RST section header underlines.
+func isSectionHeader(line string) bool {
+	if len(line) < 3 {
+		return false
+	}
+	first := rune(line[0])
+	if first != '=' && first != '-' && first != '~' && first != '^' && first != '*' {
+		return false
+	}
+	for _, r := range line {
+		if r != first {
+			return false
+		}
+	}
+	return true
+}
+
+// --- Legacy parsers kept for compatibility ---
+
 func parseMembers(content, className, path string) []Symbol {
+	// Fallback: old parser for non-classref RST content.
 	var symbols []Symbol
 	scanner := bufio.NewScanner(strings.NewReader(content))
 	currentSection := ""
@@ -327,11 +566,8 @@ func parseMembers(content, className, path string) []Symbol {
 	flushMember := func() {
 		if currentMember.MemberName != "" {
 			currentMember.Description = strings.TrimSpace(strings.Join(currentDescLines, "\n"))
-			if currentMember.Description != "" {
-				// Truncate description.
-				if len(currentMember.Description) > 2000 {
-					currentMember.Description = currentMember.Description[:2000] + "..."
-				}
+			if len(currentMember.Description) > 2000 {
+				currentMember.Description = currentMember.Description[:2000] + "..."
 			}
 			symbols = append(symbols, currentMember)
 		}
@@ -345,7 +581,6 @@ func parseMembers(content, className, path string) []Symbol {
 		line := scanner.Text()
 		trimmed := strings.TrimSpace(line)
 
-		// Detect section headers.
 		lower := strings.ToLower(trimmed)
 		switch lower {
 		case "methods", "method descriptions":
@@ -382,16 +617,13 @@ func parseMembers(content, className, path string) []Symbol {
 			continue
 		}
 
-		// Detect member signature lines.
 		if strings.Contains(trimmed, "(") && strings.Contains(trimmed, ")") {
-			// Looks like a method signature.
 			flushMember()
 			currentMember = parseMethodSignature(trimmed, className, path, lineNum)
 			inMemberDesc = true
 			continue
 		}
 
-		// Simple property/signal line: name type
 		if currentSection == "properties" || currentSection == "signals" || currentSection == "theme_properties" {
 			parts := strings.Fields(trimmed)
 			if len(parts) >= 2 && !strings.Contains(trimmed, "(") {
@@ -429,19 +661,11 @@ func parseMembers(content, className, path string) []Symbol {
 
 func parseMethodSignature(line, className, path string, lineNum int) Symbol {
 	trimmed := strings.TrimSpace(line)
-	// Try to extract return type and method name.
-	// Format examples:
-	// bool move_and_slide()
-	// void add_child(node: Node, force_readable_name: bool = false)
-	// PackedByteArray save_png_to_buffer() const
-	// static Vector2 get_gravity()
-
 	parts := strings.Fields(trimmed)
 	if len(parts) == 0 {
 		return Symbol{}
 	}
 
-	// Check if first word looks like a return type.
 	returnType := ""
 	nameStart := 0
 	if isTypeLike(parts[0]) || parts[0] == "static" || parts[0] == "const" || parts[0] == "virtual" || parts[0] == "abstract" || parts[0] == "override" {
@@ -451,7 +675,6 @@ func parseMethodSignature(line, className, path string, lineNum int) Symbol {
 		nameStart = 1
 	}
 
-	// Find method name before '('.
 	rest := strings.Join(parts[nameStart:], " ")
 	parenIdx := strings.Index(rest, "(")
 	memberName := rest
@@ -470,7 +693,6 @@ func parseMethodSignature(line, className, path string, lineNum int) Symbol {
 	}
 }
 
-// isTypeLike checks if a word looks like a type name.
 func isTypeLike(s string) bool {
 	if s == "" {
 		return false

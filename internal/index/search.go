@@ -3,6 +3,7 @@ package index
 import (
 	"database/sql"
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -220,11 +221,23 @@ func extractInherits(content string) string {
 	lines := strings.Split(content, "\n")
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(strings.ToLower(line), "inherits:") {
-			return strings.TrimSpace(strings.TrimPrefix(line, "inherits:")+strings.TrimPrefix(line, "Inherits:"))
+		lower := strings.ToLower(line)
+		// Godot 4.4 format: **Inherits:** :ref:`ClassName<class_ClassName>` **<** ...
+		if strings.HasPrefix(lower, "**inherits:**") || strings.HasPrefix(lower, "inherits:") {
+			// Extract class name from first :ref:`ClassName<class_ClassName>`
+			refRe := regexp.MustCompile(":ref:`([^`]+)`")
+			matches := refRe.FindAllStringSubmatch(line, -1)
+			for _, m := range matches {
+				ref := m[1]
+				parts := strings.SplitN(ref, "<", 2)
+				if len(parts) > 0 {
+					return strings.TrimSpace(parts[0])
+				}
+			}
+			return ""
 		}
-		if strings.HasPrefix(strings.ToLower(line), "extends ") {
-			return strings.TrimSpace(strings.TrimPrefix(strings.ToLower(line), "extends "))
+		if strings.HasPrefix(lower, "extends ") {
+			return strings.TrimSpace(strings.TrimPrefix(lower, "extends "))
 		}
 	}
 	return ""
@@ -235,7 +248,42 @@ func extractSummary(content string) string {
 	lines := strings.Split(content, "\n")
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
-		if line != "" && len(line) > 20 {
+		// Skip directives, comments, empty lines, section headers, inherits line
+		if line == "" || strings.HasPrefix(line, "..") || strings.HasPrefix(line, ":") {
+			continue
+		}
+		lower := strings.ToLower(line)
+		if strings.HasPrefix(lower, "**inherits:**") || strings.HasPrefix(lower, "inherits:") {
+			continue
+		}
+		if strings.HasPrefix(lower, "description") {
+			continue
+		}
+		// Skip RST underline markers (==== ----)
+		if len(line) >= 3 {
+			first := line[0]
+			if (first == '=' || first == '-' || first == '~' || first == '^' || first == '*') {
+				allSame := true
+				for i := 1; i < len(line); i++ {
+					if line[i] != first {
+						allSame = false
+						break
+					}
+				}
+				if allSame {
+					continue
+				}
+			}
+		}
+		// Skip very short lines and titles
+		if len(line) > 30 {
+			return line
+		}
+	}
+	// Fallback: first non-empty, non-comment line
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "" && !strings.HasPrefix(line, "..") && !strings.HasPrefix(line, ":") {
 			return line
 		}
 	}
