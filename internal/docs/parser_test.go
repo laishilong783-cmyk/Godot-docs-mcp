@@ -92,3 +92,40 @@ func TestIsRSTUnderline(t *testing.T) {
 		t.Error("Expected ==- to NOT be underline")
 	}
 }
+
+func TestParseMembersIgnoresPropertySetgetBlocks(t *testing.T) {
+	content := "\n" +
+		".. rst-class:: classref-property\n\n" +
+		":ref:`Vector2<class_Vector2>` **velocity** = ``Vector2(0, 0)``\n\n" +
+		".. rst-class:: classref-property-setget\n\n" +
+		"- |void| **set_velocity**\\ (\\ value\\: :ref:`Vector2<class_Vector2>`\\ )\n" +
+		"- :ref:`Vector2<class_Vector2>` **get_velocity**\\ (\\ )\n\n" +
+		"Current velocity vector in pixels per second.\n\n" +
+		".. rst-class:: classref-item-separator\n\n" +
+		"----\n\n" +
+		".. rst-class:: classref-method\n\n" +
+		":ref:`bool<class_bool>` **move_and_slide**\\ (\\ )\n\n" +
+		"Moves the body based on velocity.\n"
+
+	symbols := parseMembersFromRawRST(content, "CharacterBody2D", "classes/class_characterbody2d.rst")
+
+	var properties, methods []Symbol
+	for _, sym := range symbols {
+		switch sym.Kind {
+		case KindProperty:
+			properties = append(properties, sym)
+		case KindMethod:
+			methods = append(methods, sym)
+		}
+		if sym.MemberName == "set_velocity" || sym.MemberName == "get_velocity" {
+			t.Fatalf("property set/get helper was indexed as a member: %+v", sym)
+		}
+	}
+
+	if len(properties) != 1 || properties[0].MemberName != "velocity" {
+		t.Fatalf("properties = %+v, want only velocity", properties)
+	}
+	if len(methods) != 1 || methods[0].MemberName != "move_and_slide" {
+		t.Fatalf("methods = %+v, want only move_and_slide", methods)
+	}
+}

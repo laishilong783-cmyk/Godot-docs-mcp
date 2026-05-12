@@ -70,7 +70,7 @@ export GODOT_DOCS_PATH=/Users/you/dev/godot-docs
       "command": "E:/godot/godot-docs-mcp/godot-docs-mcp.exe",
       "args": [],
       "env": {
-        "GODOT_DOCS_PATH": "E:/godot/godot-docs",
+        "GODOT_DOCS_PATH": "E:/godot/godoc-docs",
         "GODOT_DOCS_DB": "E:/godot/godot_docs_4_4.db",
         "GODOT_DOCS_VERSION": "4.4"
       }

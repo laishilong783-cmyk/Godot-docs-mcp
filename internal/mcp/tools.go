@@ -16,9 +16,9 @@ import (
 
 // Server wraps the MCP server with our index and config.
 type Server struct {
-	s       *server.MCPServer
-	db      *index.DB
-	cfg     *config.Config
+	s   *server.MCPServer
+	db  *index.DB
+	cfg *config.Config
 }
 
 // NewServer creates a new MCP server instance.
@@ -43,6 +43,10 @@ func (ms *Server) registerTools() {
 	// Tool: godot_docs_search
 	searchTool := mcp.NewTool("godot_docs_search",
 		mcp.WithDescription("Full-text search local Godot documentation. Use when you are unsure of the exact class name, method name, or tutorial location."),
+		mcp.WithReadOnlyHintAnnotation(true),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(true),
+		mcp.WithOpenWorldHintAnnotation(false),
 		mcp.WithString("query", mcp.Required(), mcp.Description("Search query text")),
 		mcp.WithString("version", mcp.Description("Godot docs version, e.g. 4.4")),
 		mcp.WithNumber("limit", mcp.Description("Max number of results (default 10, max 50)")),
@@ -52,6 +56,10 @@ func (ms *Server) registerTools() {
 	// Tool: godot_docs_get_page
 	pageTool := mcp.NewTool("godot_docs_get_page",
 		mcp.WithDescription("Read a document page by relative path."),
+		mcp.WithReadOnlyHintAnnotation(true),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(true),
+		mcp.WithOpenWorldHintAnnotation(false),
 		mcp.WithString("path", mcp.Required(), mcp.Description("Relative path to the document under GODOT_DOCS_PATH")),
 		mcp.WithString("version", mcp.Description("Godot docs version, e.g. 4.4")),
 		mcp.WithNumber("max_chars", mcp.Description("Maximum characters to return")),
@@ -61,6 +69,10 @@ func (ms *Server) registerTools() {
 	// Tool: godot_docs_get_class
 	classTool := mcp.NewTool("godot_docs_get_class",
 		mcp.WithDescription("Query Godot class documentation. Use to confirm a class exists, its inheritance, methods, properties and signals."),
+		mcp.WithReadOnlyHintAnnotation(true),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(true),
+		mcp.WithOpenWorldHintAnnotation(false),
 		mcp.WithString("class_name", mcp.Required(), mcp.Description("Class name, e.g. CharacterBody2D")),
 		mcp.WithString("version", mcp.Description("Godot docs version, e.g. 4.4")),
 		mcp.WithBoolean("include_members", mcp.Description("Whether to include methods, properties and signals")),
@@ -70,6 +82,10 @@ func (ms *Server) registerTools() {
 	// Tool: godot_docs_get_method
 	methodTool := mcp.NewTool("godot_docs_get_method",
 		mcp.WithDescription("Query a method signature and description of a Godot class. Use to avoid inventing method parameters or return types."),
+		mcp.WithReadOnlyHintAnnotation(true),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(true),
+		mcp.WithOpenWorldHintAnnotation(false),
 		mcp.WithString("class_name", mcp.Required(), mcp.Description("Class name, e.g. CharacterBody2D")),
 		mcp.WithString("method_name", mcp.Required(), mcp.Description("Method name, e.g. move_and_slide")),
 		mcp.WithString("version", mcp.Description("Godot docs version, e.g. 4.4")),
