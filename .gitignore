@@ -24,6 +24,8 @@ vendor/
 test-output.jsonl
 test-stderr.txt
 test-mcp-tools.go
+test-comprehensive.go
+comprehensive_test_output.json
 
 # IDE
 .idea/
