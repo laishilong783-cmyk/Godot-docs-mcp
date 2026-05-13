@@ -16,6 +16,13 @@ type SearchResult struct {
 	Snippet string  `json:"snippet"`
 }
 
+// MemberFilter controls class member retrieval.
+type MemberFilter struct {
+	Kinds []string
+	Query string
+	Limit int
+}
+
 // Search performs a full-text search on documents.
 func (db *DB) Search(version, query string, limit int) ([]SearchResult, error) {
 	// Escape FTS5 special chars except * and " and space.
@@ -115,14 +122,46 @@ func (db *DB) GetClass(version, className string) (map[string]interface{}, error
 	}, nil
 }
 
-// GetClassMembers retrieves all members of a class.
-func (db *DB) GetClassMembers(version, className string) ([]map[string]interface{}, error) {
+// GetClassMembers retrieves members of a class, optionally filtered by kind, name and limit.
+func (db *DB) GetClassMembers(version, className string, filter MemberFilter) ([]map[string]interface{}, error) {
+	where := []string{"version = ?", "class_name = ? COLLATE NOCASE", "kind != 'class'"}
+	args := []interface{}{version, className}
+
+	if len(filter.Kinds) > 0 {
+		placeholders := make([]string, 0, len(filter.Kinds))
+		for _, kind := range filter.Kinds {
+			if !isSymbolKind(kind) || kind == "class" {
+				continue
+			}
+			placeholders = append(placeholders, "?")
+			args = append(args, kind)
+		}
+		if len(placeholders) > 0 {
+			where = append(where, "kind IN ("+strings.Join(placeholders, ",")+")")
+		}
+	}
+	if filter.Query != "" {
+		where = append(where, "(member_name LIKE ? OR signature LIKE ?)")
+		like := "%" + filter.Query + "%"
+		args = append(args, like, like)
+	}
+
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	args = append(args, limit)
+
 	rows, err := db.conn.Query(`
 		SELECT kind, member_name, signature, return_type, description
 		FROM symbols
-		WHERE version = ? AND class_name LIKE ? AND kind != 'class'
+		WHERE `+strings.Join(where, " AND ")+`
 		ORDER BY kind, member_name
-	`, version, className)
+		LIMIT ?
+	`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -146,32 +185,115 @@ func (db *DB) GetClassMembers(version, className string) ([]map[string]interface
 	return members, nil
 }
 
-// GetMethod retrieves a specific method by class and method name.
-func (db *DB) GetMethod(version, className, methodName string) (map[string]interface{}, error) {
+// GetMember retrieves a specific symbol by class, kind and member name.
+func (db *DB) GetMember(version, className, kind, memberName string) (map[string]interface{}, error) {
+	if !isSymbolKind(kind) || kind == "class" {
+		return nil, fmt.Errorf("INVALID_SYMBOL_KIND")
+	}
+
 	row := db.conn.QueryRow(`
 		SELECT signature, return_type, description, path
 		FROM symbols
-		WHERE version = ? AND class_name LIKE ? AND member_name LIKE ? AND kind = 'method'
+		WHERE version = ? AND class_name = ? COLLATE NOCASE AND member_name = ? COLLATE NOCASE AND kind = ?
 		LIMIT 1
-	`, version, className, methodName)
+	`, version, className, memberName, kind)
 
 	var signature, returnType, description, path string
 	if err := row.Scan(&signature, &returnType, &description, &path); err != nil {
 		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("METHOD_NOT_FOUND")
+			return nil, fmt.Errorf("MEMBER_NOT_FOUND")
 		}
 		return nil, err
 	}
 
 	return map[string]interface{}{
 		"class_name":  className,
-		"method_name": methodName,
+		"member_name": memberName,
+		"kind":        kind,
 		"version":     version,
 		"signature":   signature,
 		"return_type": returnType,
 		"description": description,
 		"path":        path,
 	}, nil
+}
+
+// GetMethod retrieves a specific method by class and method name.
+func (db *DB) GetMethod(version, className, methodName string) (map[string]interface{}, error) {
+	info, err := db.GetMember(version, className, "method", methodName)
+	if err != nil {
+		if err.Error() == "MEMBER_NOT_FOUND" {
+			return nil, fmt.Errorf("METHOD_NOT_FOUND")
+		}
+		return nil, err
+	}
+	info["method_name"] = methodName
+	return info, nil
+}
+
+// SearchSymbols finds API symbols matching a query in names or signatures.
+func (db *DB) SearchSymbols(version, query string, kinds []string, limit int) ([]map[string]interface{}, error) {
+	where := []string{"version = ?", "kind != 'class'", "(member_name LIKE ? OR class_name LIKE ? OR signature LIKE ?)"}
+	like := "%" + query + "%"
+	args := []interface{}{version, like, like, like}
+
+	if len(kinds) > 0 {
+		placeholders := make([]string, 0, len(kinds))
+		for _, kind := range kinds {
+			if !isSymbolKind(kind) || kind == "class" {
+				continue
+			}
+			placeholders = append(placeholders, "?")
+			args = append(args, kind)
+		}
+		if len(placeholders) > 0 {
+			where = append(where, "kind IN ("+strings.Join(placeholders, ",")+")")
+		}
+	}
+
+	if limit <= 0 {
+		limit = 12
+	}
+	if limit > 50 {
+		limit = 50
+	}
+	args = append(args, limit)
+
+	rows, err := db.conn.Query(`
+		SELECT kind, class_name, member_name, signature, return_type, path
+		FROM symbols
+		WHERE `+strings.Join(where, " AND ")+`
+		ORDER BY
+			CASE
+				WHEN member_name = ? COLLATE NOCASE THEN 0
+				WHEN member_name LIKE ? THEN 1
+				WHEN class_name LIKE ? THEN 2
+				ELSE 3
+			END,
+			class_name, member_name
+		LIMIT ?
+	`, append(args[:len(args)-1], query, query+"%", query+"%", limit)...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []map[string]interface{}
+	for rows.Next() {
+		var kind, className, memberName, signature, returnType, path string
+		if err := rows.Scan(&kind, &className, &memberName, &signature, &returnType, &path); err != nil {
+			continue
+		}
+		results = append(results, map[string]interface{}{
+			"kind":        kind,
+			"class_name":  className,
+			"name":        memberName,
+			"signature":   signature,
+			"return_type": returnType,
+			"path":        path,
+		})
+	}
+	return results, nil
 }
 
 // FindCandidates returns similar class or member names.
@@ -214,6 +336,15 @@ func (db *DB) FindCandidates(version, kind, className, memberName string, limit 
 	}
 
 	return candidates, nil
+}
+
+func isSymbolKind(kind string) bool {
+	switch kind {
+	case "class", "method", "property", "signal", "enum", "constant", "annotation", "operator", "theme_property":
+		return true
+	default:
+		return false
+	}
 }
 
 // extractInherits extracts inheritance info from RST content.
@@ -262,7 +393,7 @@ func extractSummary(content string) string {
 		// Skip RST underline markers (==== ----)
 		if len(line) >= 3 {
 			first := line[0]
-			if (first == '=' || first == '-' || first == '~' || first == '^' || first == '*') {
+			if first == '=' || first == '-' || first == '~' || first == '^' || first == '*' {
 				allSame := true
 				for i := 1; i < len(line); i++ {
 					if line[i] != first {
