@@ -60,7 +60,7 @@ The repository also includes pre-built binaries:
 
 ```powershell
 cd E:\
-git clone https://github.com/<your-account>/godot-docs-mcp.git
+git clone https://github.com/laishilong783-cmyk/Godot-docs-mcp.git
 cd E:\godot-docs-mcp
 ```
 
@@ -118,7 +118,7 @@ go build -o godot-docs-mcp.exe ./cmd/godot-docs-mcp
 
 ```bash
 cd ~/dev
-git clone https://github.com/<your-account>/godot-docs-mcp.git
+git clone https://github.com/laishilong783-cmyk/Godot-docs-mcp.git
 cd ~/dev/godot-docs-mcp
 ```
 
@@ -187,7 +187,7 @@ Use `godot-docs-mcp-darwin-amd64` on Intel Mac.
 
 ```bash
 cd ~/dev
-git clone https://github.com/<your-account>/godot-docs-mcp.git
+git clone https://github.com/laishilong783-cmyk/Godot-docs-mcp.git
 cd ~/dev/godot-docs-mcp
 ```
 
@@ -395,7 +395,7 @@ Suggest APIs before operating Godot:
 
 ```powershell
 cd E:\
-git clone https://github.com/<your-account>/godot-docs-mcp.git
+git clone https://github.com/laishilong783-cmyk/Godot-docs-mcp.git
 cd E:\godot-docs-mcp
 ```
 
@@ -453,7 +453,7 @@ go build -o godot-docs-mcp.exe ./cmd/godot-docs-mcp
 
 ```bash
 cd ~/dev
-git clone https://github.com/<your-account>/godot-docs-mcp.git
+git clone https://github.com/laishilong783-cmyk/Godot-docs-mcp.git
 cd ~/dev/godot-docs-mcp
 ```
 
@@ -522,7 +522,7 @@ Intel Mac 请把文件名换成 `godot-docs-mcp-darwin-amd64`。
 
 ```bash
 cd ~/dev
-git clone https://github.com/<your-account>/godot-docs-mcp.git
+git clone https://github.com/laishilong783-cmyk/Godot-docs-mcp.git
 cd ~/dev/godot-docs-mcp
 ```
 
