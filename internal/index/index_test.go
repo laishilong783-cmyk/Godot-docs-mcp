@@ -162,6 +162,65 @@ func TestFilteredMembersAndExactMemberLookup(t *testing.T) {
 	}
 }
 
+func TestVersionIsolation(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	db, err := Open(dbPath)
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer db.Close()
+
+	if _, err := db.InsertDocument("4.3", "classes/class_node.rst", "Node", "classes", "Godot 4.3 Node docs"); err != nil {
+		t.Fatalf("InsertDocument 4.3 failed: %v", err)
+	}
+	if _, err := db.InsertDocument("4.4", "classes/class_node.rst", "Node", "classes", "Godot 4.4 Node docs"); err != nil {
+		t.Fatalf("InsertDocument 4.4 failed: %v", err)
+	}
+	if err := db.InsertSymbol("4.3", "method", "Node", "example", "void example(old_arg: int)", "void", "", "classes/class_node.rst", 0, 0); err != nil {
+		t.Fatalf("InsertSymbol 4.3 failed: %v", err)
+	}
+	if err := db.InsertSymbol("4.4", "method", "Node", "example", "void example(new_arg: String)", "void", "", "classes/class_node.rst", 0, 0); err != nil {
+		t.Fatalf("InsertSymbol 4.4 failed: %v", err)
+	}
+	if err := db.SyncFTS(); err != nil {
+		t.Fatalf("SyncFTS failed: %v", err)
+	}
+
+	_, _, content43, err := db.GetPage("4.3", "classes/class_node.rst")
+	if err != nil {
+		t.Fatalf("GetPage 4.3 failed: %v", err)
+	}
+	_, _, content44, err := db.GetPage("4.4", "classes/class_node.rst")
+	if err != nil {
+		t.Fatalf("GetPage 4.4 failed: %v", err)
+	}
+	if content43 == content44 {
+		t.Fatalf("expected version-specific page contents, got same content %q", content43)
+	}
+
+	method43, err := db.GetMethod("4.3", "Node", "example")
+	if err != nil {
+		t.Fatalf("GetMethod 4.3 failed: %v", err)
+	}
+	method44, err := db.GetMethod("4.4", "Node", "example")
+	if err != nil {
+		t.Fatalf("GetMethod 4.4 failed: %v", err)
+	}
+	if method43["signature"] == method44["signature"] {
+		t.Fatalf("expected version-specific method signatures, got %q", method43["signature"])
+	}
+
+	results, err := db.Search("4.4", "4.3", 10)
+	if err != nil {
+		t.Fatalf("Search failed: %v", err)
+	}
+	if len(results) != 0 {
+		t.Fatalf("search leaked another version into 4.4 results: %+v", results)
+	}
+}
+
 func TestGetPage(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")
